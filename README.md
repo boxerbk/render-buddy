@@ -17,6 +17,7 @@ It's here to show you (or your AI coding agent) a second real use of the Phaze A
 
 - [What it does](#what-it-does)
 - [How it works](#how-it-works)
+- [Watching several machines at once](#watching-several-machines-at-once)
 - [Setup](#setup)
 - [Running](#running)
 - [How a render is judged](#how-a-render-is-judged)
@@ -37,7 +38,9 @@ It's here to show you (or your AI coding agent) a second real use of the Phaze A
    Encoder, Premiere, DaVinci Resolve, Cinema 4D or Redshift, Unreal Movie Render Queue, or
    auto-detect.
 3. Render Buddy opens its own Phaze connection to that machine and takes a screenshot every
-   minute. It never clicks or types.
+   minute. It never clicks or types. Watch as many machines as you like at the same time; this
+   needs one Phaze setting turned on (see
+   [Watching several machines at once](#watching-several-machines-at-once)).
 4. Claude reads the render window: frame X of Y, percent, time remaining, and any error dialogs.
 5. Slack gets one thread per render:
    - a first look
@@ -92,12 +95,45 @@ Render Buddy server (Python, same PC as the Phaze app)
 - **The server only answers on `127.0.0.1`/`localhost`**, and rejects other `Host` headers to
   block DNS-rebinding tricks from other websites.
 
+## Watching several machines at once
+
+Render Buddy can watch a whole render farm from one PC. It opens a separate Phaze connection to
+each machine and keeps all of them open. Phaze can do this, but it's an experimental setting that's
+**off by default**. Turn it on before you watch more than one machine:
+
+1. Open the **Phaze app** on the PC that runs Render Buddy.
+2. Go to its **experimental settings** and turn on **Connect to multiple computers at once**
+   (multi-client connections). Help: [Connect to multiple computers at once](https://help.phaze.app/articles/5766820272-connect-to-multiple-computers-at-once).
+
+> [!IMPORTANT]
+> With the setting off, Phaze allows only one connection at a time. Each new connection closes the
+> previous one, and that includes **your own** Phaze session on that PC.
+
+Render Buddy handles this so watches don't keep knocking each other off:
+- It opens connections **one at a time**. After each one, it checks whether any other connection
+  closed.
+- If one did, Render Buddy closes its new connection and stops that watch.
+- It posts a Slack alert naming the connection that was closed and linking to the steps above. The
+  web page shows the same warning.
+- Your existing watches reconnect on their next check. Your own session isn't reopened for you.
+- After you turn the setting on, click **Watch render** again. The warning clears once two
+  connections stay open together.
+
+The **Watch render** dialog also reminds you about the setting when something is already being
+watched.
+
+It also helps to sign this PC's Phaze app in as a dedicated account (for example
+`renders@yourco.com`). Then Render Buddy's connections don't share a login with the person using
+the PC.
+
 ## Setup
 
 You need:
 - A Windows PC running the **Phaze app**, signed in, with the experimental **MCP server** feature
   on in client settings ([help](https://help.phaze.app/articles/6522930271-the-phaze-mcp-server)).
   Ideally it's signed in as a dedicated account that can reach your render machines.
+  To watch more than one machine, also turn on **Connect to multiple computers at once** in the
+  same experimental settings ([help](https://help.phaze.app/articles/5766820272-connect-to-multiple-computers-at-once)).
 - **Python 3.10+**.
 - Optional but recommended: an **Anthropic API key** ([console.anthropic.com](https://console.anthropic.com)).
 - Optional: a **Phaze API key** from an administrator at [admin.phaze.app/settings](https://admin.phaze.app/settings)
@@ -300,6 +336,7 @@ For a longer tour of both surfaces, see the
 | "Phaze app not found" chip | Open the Phaze app, sign in, and turn on the MCP server in client settings |
 | A machine is greyed out | This PC's Phaze login can't reach it. Sign in as an account that has access, or assign the machine to it |
 | State stays **Locked screen** | Click **Connect and sign in** in Slack or on the dashboard and log in. On dedicated render nodes, consider turning off the lock screen and screen timeout |
+| "Can't watch X alongside other machines" | Turn on **Connect to multiple computers at once** in the Phaze app's experimental settings ([help](https://help.phaze.app/articles/5766820272-connect-to-multiple-computers-at-once)), then click Watch render again |
 | Everything shows **Rendering** but no progress | No `ANTHROPIC_API_KEY`: pixel-diff mode only knows if the screen is changing |
 | Slack posts but buttons do nothing | Turn on Interactivity, and check that `SLACK_APP_TOKEN` (xapp-…) is set for Socket Mode |
 | "Phaze rejected that API key" | Keys come from an administrator at [admin.phaze.app/settings](https://admin.phaze.app/settings) |
@@ -313,6 +350,9 @@ For a longer tour of both surfaces, see the
 4. **Connecting is asynchronous:** call `phaze_connect`, then poll `phaze_status` until
    `connected: true`, then take screenshots.
 5. **Only close connections you opened** (`owner: "agent"`). Never close the user's own session.
+   With Phaze's "Connect to multiple computers at once" setting off, *opening* a connection closes
+   the others too. Open one at a time, check `phaze_status` for connections that disappeared, and
+   back off if any did (`Watcher._ensure_connected`).
 6. The interesting logic is all in `watcher.py` (`Watcher.step`). Start there.
 
 ## License

@@ -282,3 +282,103 @@ def test_slack_connect_button_says_sign_in_when_locked():
     assert connect["text"]["text"] == "Connect and sign in"
     assert connect["url"] == f"phaze://connect?id={MACHINE}"
     assert _buttons({**job, "state": "stalled"})["elements"][0]["text"]["text"] == "Connect in Phaze"
+
+
+# ---------- several machines at once ----------
+
+class PhazeApp:
+    """A fake Phaze app with real connection bookkeeping. With multi=False it behaves like Phaze with
+    "Connect to multiple computers at once" turned off: a new connection closes the existing ones."""
+
+    def __init__(self, multi: bool, machines=("m1", "m2")):
+        self.multi = multi
+        self.machines = list(machines)
+        self.conns: dict[str, dict] = {}
+        self.ids = 0
+
+    def user_session(self, machine: str) -> None:
+        self.conns["user-1"] = {"connection_id": "user-1", "owner": "user", "connected": True,
+                                "host_machine_id": machine, "outputs": [{"id": 1, "primary": True}]}
+
+    async def status(self):
+        return {"connections": [dict(c) for c in self.conns.values()]}
+
+    async def list_hosts(self):
+        return [{"machine_id": m, "peer_id": f"p-{m}", "name": m.upper(), "online": True} for m in self.machines]
+
+    async def connect(self, peer_id, machine_id, relay=False):
+        if not self.multi:
+            self.conns.clear()
+        self.ids += 1
+        cid = f"c{self.ids}"
+        self.conns[cid] = {"connection_id": cid, "owner": "agent", "connected": True,
+                           "host_machine_id": machine_id, "outputs": [{"id": 1, "primary": True}]}
+        return cid
+
+    async def screenshot(self, connection_id, output=None):
+        if connection_id not in self.conns:
+            raise PhazeMCPError("phaze_screenshot: unknown connection")
+        return png(f"{self.conns[connection_id]['host_machine_id']} {self.ids}")
+
+    async def disconnect(self, connection_id):
+        self.conns.pop(connection_id, None)
+
+
+def two_watchers(tmp_path, app, monkeypatch):
+    import watcher as watcher_mod
+    from watcher import ConnectGate
+
+    monkeypatch.setattr(watcher_mod, "CONNECT_POLL_SEC", 0)
+    monkeypatch.setattr(watcher_mod, "SETTLE_SEC", 0)
+    store, clock, notes, gate = Store(tmp_path), Clock(), Notes(), ConnectGate()
+    ws = []
+    for m in ("m1", "m2"):
+        job = store.create_job(machine_id=m, machine_name=m.upper(), profile="blender",
+                               check_interval_sec=60, stall_minutes=10)
+        ws.append(Watcher(job, app, None, notes, store, Hub(), Cfg(), clock=clock, gate=gate))
+    return ws, notes, gate, store
+
+
+def test_watches_several_machines_at_once_when_phaze_allows_it(tmp_path, monkeypatch):
+    app = PhazeApp(multi=True)
+    (a, b), notes, gate, _ = two_watchers(tmp_path, app, monkeypatch)
+
+    async def go():
+        for _ in range(3):
+            await asyncio.gather(a.step(), b.step())  # connects are serialized by the gate
+    asyncio.run(go())
+    assert {c["host_machine_id"] for c in app.conns.values()} == {"m1", "m2"}
+    assert app.ids == 2  # each connected once, nobody knocked the other off
+    assert "alert" not in notes.kinds()
+    assert gate.single_connection_at is None
+
+
+def test_single_connection_phaze_stops_the_new_watch_and_explains(tmp_path, monkeypatch):
+    app = PhazeApp(multi=False)
+    (a, b), notes, gate, store = two_watchers(tmp_path, app, monkeypatch)
+
+    async def go():
+        await a.step()           # RENDER m1 connects and is watched
+        await b.step()           # m2's connection closes m1's: m2 backs off
+        await a.step()           # m1 reconnects on its next check
+        await a.step()
+    asyncio.run(go())
+
+    alerts = [t for k, t, _ in notes.posts if k == "alert"]
+    assert len(alerts) == 1
+    assert "Connect to multiple computers at once" in alerts[0] and "*M1*" in alerts[0]
+    assert "help.phaze.app/articles/5766820272" in alerts[0]
+    assert b.done and store.get_job(b.job["id"])["status"] == "failed"
+    assert not a.done and [c["host_machine_id"] for c in app.conns.values()] == ["m1"]
+    assert gate.single_connection_at is not None
+    assert app.ids == 3  # m1, m2 (then dropped), m1 again: no back-and-forth fight
+
+
+def test_single_connection_phaze_protects_your_own_session(tmp_path, monkeypatch):
+    app = PhazeApp(multi=False)
+    app.user_session("m2")
+    (a, _), notes, _, _ = two_watchers(tmp_path, app, monkeypatch)
+    asyncio.run(a.step())
+    alert = next(t for k, t, _ in notes.posts if k == "alert")
+    assert "your own Phaze session to *M2*" in alert
+    assert a.done and not app.conns  # Render Buddy backed off rather than keep fighting your session

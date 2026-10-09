@@ -19,6 +19,9 @@ from vision import BIG_CHANGE, SMALL_CHANGE, screen_change
 ALERT_STATES = {"stalled", "error_dialog", "not_responding", "app_closed", "offline", "locked"}
 MILESTONES = (25, 50, 75)
 CONNECT_TIMEOUT_SEC = 45
+CONNECT_POLL_SEC = 1.5
+SETTLE_SEC = 3  # after a connection lands, wait this long before checking whether it closed another one
+MULTI_CONNECT_HELP = "https://help.phaze.app/articles/5766820272-connect-to-multiple-computers-at-once"
 STALL_VOTES_NEEDED = 2  # with Claude: two stall verdicts in a row before alerting, to ride out slow frames
 
 # What the dashboard shows while Render Buddy can't see the screen.
@@ -75,9 +78,20 @@ class ConsoleNotifier:
         print(f"[notify] {job['machine_name']}: {text}" + (f" [timelapse: {gif_path}]" if gif_path else ""))
 
 
+class ConnectGate:
+    """Shared by all watchers. Opens Phaze connections one at a time, and remembers if Phaze turned out
+    to allow only one connection (its "Connect to multiple computers at once" setting is off)."""
+
+    def __init__(self):
+        self.lock = asyncio.Lock()
+        self.single_connection_at: float | None = None
+
+
 class Watcher:
-    def __init__(self, job: dict, mcp, vision, notifier, store: Store, hub: Hub, cfg, clock=time.time):
+    def __init__(self, job: dict, mcp, vision, notifier, store: Store, hub: Hub, cfg, clock=time.time,
+                 gate: ConnectGate | None = None):
         self.job = job
+        self.gate = gate or ConnectGate()
         self.mcp, self.vision, self.notifier, self.store, self.hub, self.cfg = mcp, vision, notifier, store, hub, cfg
         self.clock = clock
         self.dir = store.job_dir(job["id"])
@@ -287,20 +301,58 @@ class Watcher:
             self.blind = True
             await self._apply("offline", None, None)
             return False
-        if not conn:
-            print(f"[watch]  connecting to {self.job['machine_name']}")
-            self.connection_id = await self.mcp.connect(host["peer_id"], host["machine_id"],
-                                                        bool(host.get("requires_relay")))
-            self._save(connection_id=self.connection_id)
-        deadline = self.clock() + CONNECT_TIMEOUT_SEC
-        while self.clock() < deadline:
-            await asyncio.sleep(1.5)
-            conn = find_connection(await self.mcp.status(), self.connection_id)
-            if conn and conn.get("connected"):
-                self._use(conn)
-                return True
-        print(f"[watch]  connection to {self.job['machine_name']} didn't land yet; retrying next check")
-        return False
+        # One connection at a time, so we can tell whether a new one closed an existing one.
+        async with self.gate.lock:
+            before = {c["connection_id"]: c for c in (await self.mcp.status()).get("connections", [])
+                      if c.get("connected")}
+            if not conn:
+                print(f"[watch]  connecting to {self.job['machine_name']}")
+                self.connection_id = await self.mcp.connect(host["peer_id"], host["machine_id"],
+                                                            bool(host.get("requires_relay")))
+                self._save(connection_id=self.connection_id)
+            deadline = time.monotonic() + CONNECT_TIMEOUT_SEC
+            while time.monotonic() < deadline:
+                await asyncio.sleep(CONNECT_POLL_SEC)
+                conn = find_connection(await self.mcp.status(), self.connection_id)
+                if conn and conn.get("connected"):
+                    break
+            else:
+                print(f"[watch]  connection to {self.job['machine_name']} didn't land yet; retrying next check")
+                return False
+
+            await asyncio.sleep(SETTLE_SEC)
+            now_up = {c["connection_id"] for c in (await self.mcp.status()).get("connections", [])
+                      if c.get("connected")}
+            dropped = [c for cid, c in before.items() if cid not in now_up]
+            if dropped:
+                await self._single_connection_only(dropped, hosts)
+                return False
+            if before:
+                self.gate.single_connection_at = None  # two at once worked: the setting is on
+        self._use(conn)
+        return True
+
+    async def _single_connection_only(self, dropped: list[dict], hosts: list[dict]) -> None:
+        """Our new connection closed another one, so Phaze only allows one at a time on this PC.
+        Back off (so watchers don't keep knocking each other off) and tell people how to fix it."""
+        names = {h.get("machine_id"): h.get("name") for h in hosts}
+        closed = ", ".join(
+            ("your own Phaze session to " if c.get("owner") == "user" else "the connection to ")
+            + f"*{names.get(c.get('host_machine_id')) or 'another machine'}*" for c in dropped)
+        try:
+            await self.mcp.disconnect(self.connection_id)
+        except Exception as e:
+            print(f"[watch]  disconnect failed: {e}")
+        self.connection_id = None
+        self.gate.single_connection_at = self.clock()
+        print(f"[watch]  {self.job['machine_name']}: connecting closed {closed}; multi-connection is off in Phaze")
+        self._save(summary="Stopped: this PC's Phaze app only allows one connection at a time.")
+        await self._notify("alert", (
+            f":warning: *Can't watch {self.job['machine_name']} alongside other machines.* Connecting to it closed "
+            f"{closed}, so this PC's Phaze app only allows one connection at a time. Turn on *Connect to multiple "
+            f"computers at once* in the Phaze app's experimental settings (<{MULTI_CONNECT_HELP}|how>), then click "
+            f"*Watch render* again. Other watches reconnect on their next check."), None, "failed", force=True)
+        await self.end("failed")
 
     def _use(self, conn: dict) -> None:
         if conn["connection_id"] != self.connection_id:
@@ -317,6 +369,7 @@ class Manager:
         self.notifier = notifier or ConsoleNotifier()
         self.watchers: dict[str, Watcher] = {}
         self.tasks: dict[str, asyncio.Task] = {}
+        self.gate = ConnectGate()
 
     async def start(self, machine_id: str, machine_name: str, profile: str,
                     check_interval_sec: int | None = None, stall_minutes: int | None = None) -> dict:
@@ -339,7 +392,7 @@ class Manager:
             self._spawn(job)
 
     def _spawn(self, job: dict) -> None:
-        w = Watcher(job, self.mcp, self.vision, self.notifier, self.store, self.hub, self.cfg)
+        w = Watcher(job, self.mcp, self.vision, self.notifier, self.store, self.hub, self.cfg, gate=self.gate)
         self.watchers[job["id"]] = w
         task = asyncio.create_task(w.run())
         self.tasks[job["id"]] = task

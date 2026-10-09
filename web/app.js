@@ -48,6 +48,7 @@ async function loadStatus() {
   $("#key-connected").hidden = !connected;
   $("#key-state").textContent = connected ? "Connected" : "Optional";
   $("#key-orgs").textContent = connected ? `Org: ${s.orgs.map((o) => o.name).join(", ")}` : "";
+  $("#multi-warning").hidden = !s.single_connection;
 }
 
 $("#key-form").addEventListener("submit", async (e) => {
@@ -105,6 +106,7 @@ $("#machines").addEventListener("click", (e) => {
   if (!btn) return;
   pendingMachine = btn.dataset.watch;
   $("#watch-name").textContent = btn.dataset.name;
+  $("#watch-multi").hidden = jobs.size === 0;
   $("#watch-dialog").showModal();
 });
 
@@ -246,6 +248,7 @@ function listen() {
       renderFarm();
       loadHistory();
       loadMachines();
+      loadStatus();
     }
   };
 }

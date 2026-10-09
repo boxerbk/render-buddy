@@ -49,6 +49,10 @@
         <h2>Render farm</h2>
         <span class="muted" id="farm-count"></span>
       </div>
+      <p class="notice" id="multi-warning" hidden>Phaze on this PC only allows one connection at a time, so a
+        new watch closed another connection and was stopped. Turn on <strong>Connect to multiple computers at
+        once</strong> in the Phaze app's experimental settings
+        (<a href="https://help.phaze.app/articles/5766820272-connect-to-multiple-computers-at-once" target="_blank" rel="noopener">how</a>), then click Watch render again.</p>
       <div class="farm" id="farm"></div>
       <p class="empty" id="farm-empty">Nothing is being watched yet. Pick a machine below and click
         <strong>Watch render</strong>.</p>
@@ -121,6 +125,10 @@
           </select>
         </label>
       </div>
+      <p class="notice" id="watch-multi" hidden>You're already watching a machine. Watching several at once needs
+        <strong>Connect to multiple computers at once</strong> turned on in the Phaze app's experimental settings
+        (<a href="https://help.phaze.app/articles/5766820272-connect-to-multiple-computers-at-once" target="_blank" rel="noopener">how</a>). If it's off, opening this connection closes the
+        other one, and Render Buddy will stop this new watch.</p>
       <p class="fine">Render Buddy opens its own Phaze connection to watch. It only takes screenshots: it never
         clicks or types on the machine.</p>
       <div class="dialog-actions">

@@ -59,7 +59,7 @@ def create_app(manager, cfg) -> FastAPI:
             mcp = {"ok": False, "error": str(e)}
         return {"api_key": bool(state["api"]), "orgs": [{"id": o["id"], "name": o.get("name")} for o in state["orgs"]],
                 "mcp": mcp, "vision": cfg.vision_enabled, "model": cfg.model if cfg.vision_enabled else None,
-                "slack": cfg.slack_enabled}
+                "slack": cfg.slack_enabled, "single_connection": manager.gate.single_connection_at is not None}
 
     @app.post("/api/session")
     async def set_session(body: SessionIn):
