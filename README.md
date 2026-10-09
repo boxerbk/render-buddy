@@ -108,7 +108,7 @@ You need:
 **1. Install**
 
 ```bash
-git clone <this repo>
+git clone https://github.com/boxerbk/render-buddy
 cd render-buddy
 python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
