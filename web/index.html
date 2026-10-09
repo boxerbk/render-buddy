@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Render Buddy</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./">
+      <img src="logo.svg" alt="" width="28" height="28">
+      <span class="brand-name">Phaze</span>
+      <span class="brand-divider"></span>
+      <span class="brand-app">Render Buddy</span>
+    </a>
+    <ul class="chips" id="chips" aria-label="Connections"></ul>
+  </header>
+
+  <main>
+    <section class="masthead">
+      <h1>Know when a render goes wrong.</h1>
+      <p>Pick a machine that's rendering. Render Buddy watches its screen through Phaze, and messages
+        Slack with a screenshot if the render stalls, errors or finishes.</p>
+    </section>
+
+    <section class="card" id="key-card">
+      <div class="card-head">
+        <h2>Phaze API key</h2>
+        <span class="muted" id="key-state"></span>
+      </div>
+      <form id="key-form" class="key-form" autocomplete="off">
+        <input id="key-input" type="password" placeholder="Paste an admin API key from admin.phaze.app/settings"
+               aria-label="Phaze API key" spellcheck="false">
+        <button class="btn" type="submit">Connect</button>
+      </form>
+      <p class="fine" id="key-help">The key stays on this PC: it's sent to the Render Buddy server running here,
+        kept in memory, and used only to call the Phaze API. Without a key you still see the machines this
+        PC's Phaze login can reach.</p>
+      <div id="key-connected" class="key-connected" hidden>
+        <span id="key-orgs"></span>
+        <button class="btn btn-ghost btn-sm" id="key-forget" type="button">Forget key</button>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Render farm</h2>
+        <span class="muted" id="farm-count"></span>
+      </div>
+      <div class="farm" id="farm"></div>
+      <p class="empty" id="farm-empty">Nothing is being watched yet. Pick a machine below and click
+        <strong>Watch render</strong>.</p>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Machines</h2>
+        <button class="btn btn-ghost btn-sm" id="refresh" type="button">Refresh</button>
+      </div>
+      <p class="notice" id="mcp-error" hidden></p>
+      <div class="machines" id="machines"><p class="empty">Loading machines…</p></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2>History</h2></div>
+      <div class="table-wrap">
+        <table class="history">
+          <thead><tr><th>Machine</th><th>App</th><th>Result</th><th>Started</th><th>Took</th><th></th></tr></thead>
+          <tbody id="history"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="history-empty">Finished and stopped renders show up here.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    An open-source example of the <a href="https://apidocs.phaze.app/">Phaze API</a> and MCP server.
+  </footer>
+
+  <template id="job-tpl">
+    <article class="job">
+      <div class="shot"><img alt=""><span class="badge"></span></div>
+      <div class="job-body">
+        <div class="job-title"><h3></h3><span class="app muted"></span></div>
+        <div class="progress"><span></span></div>
+        <div class="job-meta"><span class="pct"></span><span class="eta"></span></div>
+        <p class="summary"></p>
+        <div class="job-actions">
+          <a class="btn btn-sm connect">Connect</a>
+          <button class="btn btn-ghost btn-sm snap" type="button">Snapshot</button>
+          <button class="btn btn-ghost btn-sm mute" type="button">Mute 1h</button>
+          <button class="btn btn-ghost btn-sm stop" type="button">Stop</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <dialog id="watch-dialog">
+    <form method="dialog" id="watch-form">
+      <h2>Watch a render on <span id="watch-name"></span></h2>
+      <label>Renderer
+        <select id="watch-profile"></select>
+      </label>
+      <div class="row">
+        <label>Check every
+          <select id="watch-interval">
+            <option value="30">30 seconds</option>
+            <option value="60" selected>1 minute</option>
+            <option value="120">2 minutes</option>
+            <option value="300">5 minutes</option>
+          </select>
+        </label>
+        <label>Stalled after
+          <select id="watch-stall">
+            <option value="5">5 min unchanged</option>
+            <option value="10" selected>10 min unchanged</option>
+            <option value="20">20 min unchanged</option>
+            <option value="45">45 min unchanged</option>
+          </select>
+        </label>
+      </div>
+      <p class="fine">Render Buddy opens its own Phaze connection to watch. It only takes screenshots: it never
+        clicks or types on the machine.</p>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit">Cancel</button>
+        <button class="btn" value="ok" id="watch-ok" type="submit">Start watching</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
