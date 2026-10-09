@@ -11,7 +11,7 @@ from PIL import Image, ImageChops
 
 import profiles
 
-STATES = ["rendering", "stalled", "error_dialog", "not_responding", "app_closed", "finished", "unknown"]
+STATES = ["rendering", "stalled", "error_dialog", "not_responding", "app_closed", "locked", "finished", "unknown"]
 
 # Diff thresholds, as the fraction of pixels that changed (on a 320x180 grayscale thumbnail).
 SMALL_CHANGE = 0.0005   # ~30 pixels: a frame counter or progress bar ticking over
@@ -57,6 +57,8 @@ time as described in the context, or a frozen progress bar), and nothing else ex
 - error_dialog: an error, crash, warning or "failed" message is on screen, or a crash reporter.
 - not_responding: a window title says "(Not Responding)" or Windows shows a hung-app dialog.
 - app_closed: no render app is visible (desktop, another app, or the renderer has quit).
+- locked: the Windows lock screen (a full-screen photo with a large clock) or the sign-in screen \
+(user name and password or PIN box). This wins over every other state.
 - finished: the render says it is done/complete, or progress is at 100% with nothing left to render.
 - unknown: you can't tell.
 

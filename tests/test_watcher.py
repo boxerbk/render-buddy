@@ -177,9 +177,12 @@ def test_offline_and_locked_screen(tmp_path):
     assert notes.kinds() == ["alert"] and "offline" in notes.posts[0][1]
     mcp.online = True
     run_checks(w, clock, mcp, [PhazeMCPError("phaze_screenshot: connection is not capturing")])
-    assert "lock screen" in notes.posts[-1][1]
+    kind, text, has_png = notes.posts[-1]
+    assert kind == "alert" and "Connect and sign in" in text and not has_png  # nothing to show: Phaze can't capture it
+    assert "Connect and sign in" in w.job["summary"]
     run_checks(w, clock, mcp, [png("back")])
     assert w.job["state"] == "rendering"
+    assert "Signed in" in notes.posts[-1][1]
 
 
 def test_mute_suppresses_alerts_but_snapshot_still_posts(tmp_path):
@@ -247,3 +250,35 @@ def test_vision_request_shape_and_parsing():
     body = seen["body"]
     assert body["output_config"]["format"]["type"] == "json_schema"
     assert body["messages"][0]["content"][0]["type"] == "image"
+    assert "locked" in body["output_config"]["format"]["schema"]["properties"]["state"]["enum"]
+
+
+def test_visible_lock_screen_alerts_once_and_recovers_when_signed_in(tmp_path):
+    """The Windows lock screen (photo + clock) can be captured; Claude recognises it."""
+    vision = FakeVision(("rendering", 30), ("locked", None), ("locked", None), ("rendering", 31))
+    w, mcp, notes, clock, store = make(tmp_path, vision)
+    lock = [png(f"12:0{i}", big=True) for i in range(6)]  # the clock ticks: small changes only
+    run_checks(w, clock, mcp, [png("frame 1")] + lock)
+    alerts = [(t, has_png) for k, t, has_png in notes.posts if k == "alert"]
+    assert len(alerts) == 1 and "Connect and sign in" in alerts[0][0] and alerts[0][1]
+    assert vision.calls == 2  # the ticking clock doesn't cost a Claude call every minute
+    assert w.job["state"] == "locked"
+    # 15 minutes on the lock screen isn't a stall (the heartbeat look still sees the lock screen)
+    run_checks(w, clock, mcp, [lock[-1]] * 10)
+    assert [k for k, _, _ in notes.posts].count("alert") == 1
+    # Someone signs in: the screen changes completely, Claude looks, and the thread hears about it
+    run_checks(w, clock, mcp, [png("frame 2")])
+    assert w.job["state"] == "rendering"
+    assert "Signed in" in notes.posts[-1][1]
+    frames = list((store.job_dir(w.job["id"]) / "frames").glob("*.jpg"))
+    assert len(frames) == 2  # lock-screen frames stay out of the timelapse
+
+
+def test_slack_connect_button_says_sign_in_when_locked():
+    from slack_bot import _buttons
+
+    job = {"id": "j1", "machine_id": MACHINE, "state": "locked"}
+    connect = _buttons(job)["elements"][0]
+    assert connect["text"]["text"] == "Connect and sign in"
+    assert connect["url"] == f"phaze://connect?id={MACHINE}"
+    assert _buttons({**job, "state": "stalled"})["elements"][0]["text"]["text"] == "Connect in Phaze"

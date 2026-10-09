@@ -57,7 +57,7 @@ Alerts in Slack have buttons:
 
 | Button | What it does |
 |---|---|
-| **Connect in Phaze** | Opens a Phaze session to that machine (`phaze://connect?id=…`) |
+| **Connect in Phaze** | Opens a Phaze session to that machine (`phaze://connect?id=…`). On a lock-screen alert it reads **Connect and sign in** |
 | **Snapshot now** | Posts a fresh screenshot and status in the thread |
 | **Mute 1h** | Stops alerts for an hour (Render Buddy still records them) |
 | **Stop watching** | Ends the watch and closes Render Buddy's connection |
@@ -179,9 +179,30 @@ Claude answers in a fixed JSON shape (structured outputs):
 ```
 
 `state` is one of `rendering`, `stalled`, `error_dialog`, `not_responding`, `app_closed`,
-`finished`, `unknown`. Render Buddy adds two states of its own from Phaze:
-- `offline`: the machine dropped off Phaze.
-- `locked`: Windows is at the sign-in or lock screen, which Phaze can't capture.
+`locked`, `finished`, `unknown`. Render Buddy also sets `offline` itself when the machine drops off
+Phaze.
+
+### When Windows locks
+
+A render usually keeps going when Windows locks, but Render Buddy can no longer see it. There are
+two ways Render Buddy notices:
+
+| What's on screen | How it's detected |
+|---|---|
+| The lock screen (a photo and a clock) | Phaze can capture this, and Claude reports `locked` |
+| The sign-in prompt (password or PIN), or a UAC prompt | Phaze can't capture this secure desktop; `phaze_screenshot` says `not capturing` |
+
+Either way, Slack gets one alert with a **Connect and sign in** button. It opens Phaze on your
+computer, connected to that machine, so you can log in. The dashboard card shows the same button.
+While the machine is locked:
+- the ticking clock doesn't count as progress, a stall, or a reason to ask Claude
+- lock-screen frames are left out of the timelapse
+
+When you sign in, the screen changes completely. Claude takes a fresh look, and the thread gets
+"Signed in. Watching the render again." Render Buddy never types a password itself.
+
+Without an Anthropic key, only the sign-in prompt is detected. The lock-screen clock looks like
+a changing screen.
 
 The default model is `claude-haiku-5-5`. It reads render UIs well, and at one look every few
 minutes it costs very little. Set `CLAUDE_MODEL` to use something else. **Without an Anthropic
@@ -276,7 +297,7 @@ For a longer tour of both surfaces, see the
 |---|---|
 | "Phaze app not found" chip | Open the Phaze app, sign in, and turn on the MCP server in client settings |
 | A machine is greyed out | This PC's Phaze login can't reach it. Sign in as an account that has access, or assign the machine to it |
-| State stays **Locked screen** | The render PC is at the Windows sign-in or lock screen. Sign in on it (and consider disabling the lock screen on render nodes) |
+| State stays **Locked screen** | Click **Connect and sign in** in Slack or on the dashboard and log in. On dedicated render nodes, consider turning off the lock screen and screen timeout |
 | Everything shows **Rendering** but no progress | No `ANTHROPIC_API_KEY`: pixel-diff mode only knows if the screen is changing |
 | Slack posts but buttons do nothing | Turn on Interactivity, and check that `SLACK_APP_TOKEN` (xapp-…) is set for Socket Mode |
 | "Phaze rejected that API key" | Keys come from an administrator at [admin.phaze.app/settings](https://admin.phaze.app/settings) |

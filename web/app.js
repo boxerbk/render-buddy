@@ -170,6 +170,7 @@ function fillCard(card, job) {
   card.querySelector(".summary").textContent = job.summary || "Waiting for the first screenshot…";
   const muted = (job.muted_until || 0) * 1000 > Date.now();
   card.querySelector(".mute").textContent = muted ? "Unmute" : "Mute 1h";
+  card.querySelector(".connect").textContent = job.state === "locked" ? "Connect & sign in" : "Connect";
   card.querySelector(".connect").href = `phaze://connect?id=${encodeURIComponent(job.machine_id)}`;
   if (job.last_check_at && card.dataset.shot !== String(job.last_check_at)) {
     card.dataset.shot = job.last_check_at;

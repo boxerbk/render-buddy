@@ -16,9 +16,10 @@ def phaze_connect_url(machine_id: str) -> str:
 
 def _buttons(job: dict) -> dict:
     muted = bool(job.get("muted_until"))
+    connect = "Connect and sign in" if job.get("state") == "locked" else "Connect in Phaze"
     return {"type": "actions", "elements": [
         {"type": "button", "action_id": "rb_connect", "style": "primary",
-         "text": {"type": "plain_text", "text": "Connect in Phaze"}, "url": phaze_connect_url(job["machine_id"])},
+         "text": {"type": "plain_text", "text": connect}, "url": phaze_connect_url(job["machine_id"])},
         {"type": "button", "action_id": "rb_snapshot", "value": job["id"],
          "text": {"type": "plain_text", "text": "Snapshot now"}},
         {"type": "button", "action_id": "rb_unmute" if muted else "rb_mute", "value": job["id"],

@@ -21,13 +21,21 @@ MILESTONES = (25, 50, 75)
 CONNECT_TIMEOUT_SEC = 45
 STALL_VOTES_NEEDED = 2  # with Claude: two stall verdicts in a row before alerting, to ride out slow frames
 
+# What the dashboard shows while Render Buddy can't see the screen.
+BLIND_SUMMARY = {
+    "locked": "Windows is locked. Connect and sign in so Render Buddy can see the render again.",
+    "offline": "The machine is offline or not reachable from this Phaze login.",
+}
+
 ALERT_TEXT = {
     "stalled": ":hourglass: *Render looks stalled.* The screen hasn't changed in {mins} min.",
     "error_dialog": ":x: *Render error on screen.*",
     "not_responding": ":warning: *The render app is not responding.*",
     "app_closed": ":ghost: *The render app is gone.* No render window is visible.",
     "offline": ":electric_plug: *{machine} is offline* (or not reachable from this Phaze login).",
-    "locked": ":lock: *{machine} is at the Windows sign-in / lock screen*, which Phaze can't capture.",
+    "locked": ":lock: *{machine} is locked at the Windows sign-in screen.* The render may still be running, but "
+              "Render Buddy can't see it until someone signs in. Click *Connect and sign in* to open Phaze and log in; "
+              "watching picks up again on its own.",
 }
 
 
@@ -83,6 +91,7 @@ class Watcher:
         self.alerted: str | None = job["state"] if job.get("state") in ALERT_STATES else None
         self.milestones = {m for m in MILESTONES if (job.get("progress_pct") or 0) >= m}
         self.snapshot_requested = False
+        self.blind = False  # the last check couldn't capture the screen (offline, or the secure sign-in screen)
         self.wake = asyncio.Event()
         self.done = False
 
@@ -121,13 +130,13 @@ class Watcher:
         if png is None:
             return
 
-        back = self.job["state"] in ("offline", "locked")  # just came back: look fresh, restart stall clock
+        back, self.blind = self.blind, False  # can see again after a gap: look fresh
         change = screen_change(self.last_png, png)
         first = self.last_png is None
         self.last_png = png
         (self.dir / "latest.png").write_bytes(png)
-        timelapse.save_frame(self.dir, png)
-        if change >= SMALL_CHANGE or back:
+        # A locked screen isn't a stall: keep the stall clock fresh until someone signs in.
+        if change >= SMALL_CHANGE or back or self.job["state"] == "locked":
             self.last_change_at = now
         unchanged_for = now - self.last_change_at
         suspect_stall = unchanged_for >= self.stall_seconds
@@ -145,7 +154,8 @@ class Watcher:
             self.last_vision_at = now
             state = self._vision_state(result["state"], suspect_stall)
         else:
-            # Nothing interesting happened, so don't pay for a look. A small change means it's moving.
+            # Nothing interesting happened, so don't pay for a look. A small change means it's moving
+            # (except on the lock screen, where the clock ticks; signing in is a big change and gets a look).
             state = self.job["state"]
             if back or (state in ("starting", "stalled", "unknown") and change >= SMALL_CHANGE):
                 state = "rendering"
@@ -176,12 +186,16 @@ class Watcher:
     # ---------- state changes ----------
     async def _apply(self, state: str, result: dict | None, png: bytes | None, unchanged_for: float = 0) -> None:
         fields = {"state": state}
+        if state in BLIND_SUMMARY and not (result and self.vision):
+            fields["summary"] = BLIND_SUMMARY[state]
         if result:
             fields.update({k: result[k] for k in ("app", "summary", "error_text")})
             fields.update({k: result[k] for k in ("progress_pct", "frame", "total_frames", "eta")
                            if result[k] is not None})
         self._save(**fields)
 
+        if png and state not in BLIND_SUMMARY:
+            timelapse.save_frame(self.dir, png)  # lock-screen frames would only clutter the timelapse
         if state == "finished":
             await self._finish(png)
             return
@@ -195,11 +209,13 @@ class Watcher:
             self.alerted = state
             text = ALERT_TEXT[state].format(mins=round(unchanged_for / 60), machine=self.job["machine_name"])
             detail = self.job.get("error_text") if state == "error_dialog" else None
-            detail = detail or (self.job.get("summary") if result and self.vision else None)
+            detail = detail or (self.job.get("summary") if result and self.vision and state != "locked" else None)
             await self._notify("alert", text + (f"\n> {detail}" if detail else ""), png, state)
-        elif state == "rendering" and self.alerted:
-            self.alerted = None
-            await self._notify("update", f":white_check_mark: Back to rendering. {self.job.get('summary') or ''}", png)
+        elif self.alerted and state not in ALERT_STATES and (state == "rendering" or self.alerted == "locked"):
+            was, self.alerted = self.alerted, None
+            lead = (f":unlock: *Signed in* on {self.job['machine_name']}. Watching the render again."
+                    if was == "locked" else ":white_check_mark: Back to rendering.")
+            await self._notify("update", f"{lead} {self.job.get('summary') or ''}".strip(), png)
 
         if self.snapshot_requested:
             self.snapshot_requested = False
@@ -249,6 +265,7 @@ class Watcher:
             return await self.mcp.screenshot(self.connection_id, self.output)
         except PhazeMCPError as e:
             if NOT_CAPTURING in str(e):
+                self.blind = True
                 await self._apply("locked", None, None)
             elif NOT_READY not in str(e):
                 print(f"[watch]  screenshot failed, will reconnect: {e}")
@@ -267,6 +284,7 @@ class Watcher:
         hosts = await self.mcp.list_hosts()
         host = next((h for h in hosts if h.get("machine_id") == self.job["machine_id"]), None)
         if not host or not host.get("online"):
+            self.blind = True
             await self._apply("offline", None, None)
             return False
         if not conn:
