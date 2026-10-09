@@ -5,6 +5,8 @@ sends a Slack message with a screenshot when a render stalls, hits an error, the
 machine goes offline, or the render finishes. When a render finishes, you also get a timelapse GIF
 of the whole run.
 
+The Phaze team uses a similar setup to monitor our app deployments and related logs to ensure things are rolling out smoothly. 
+
 This was AI vibe coded with Opus 5.5, like the
 [helpdesk example](https://github.com/boxerbk/phaze-mcp-api-helpdesk-example). It isn't a product.
 It's here to show you (or your AI coding agent) a second real use of the Phaze API and MCP.
