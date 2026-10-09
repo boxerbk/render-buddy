@@ -46,6 +46,16 @@ enough to read in one sitting and copy.
 6. The **render farm** page shows a live thumbnail, progress bar, ETA and health badge for every
    watched machine, plus a history of past renders.
 
+![The Render Buddy dashboard: three watched machines (stalled, error, rendering), the machine list and history](docs/dashboard.png)
+
+![A Render Buddy thread in Slack: watch started, 25% milestone, then an error alert with a screenshot](docs/slack-thread.png)
+
+<sub>Both images were made with `python demo.py` (fake machines and renders). The Slack image is a mockup of what the bot posts.</sub>
+
+When a render finishes, the thread gets a timelapse like this one:
+
+![Timelapse GIF of a Blender render filling in](docs/timelapse.gif)
+
 Alerts in Slack have buttons:
 
 | Button | What it does |
@@ -139,6 +149,9 @@ python run.py --no-slack   # print notifications to the console instead of Slack
 python run.py --no-browser --port 9000
 ```
 
+To see the dashboard without Phaze, Claude or Slack, run `python demo.py`. It serves fake
+machines and renders at http://127.0.0.1:8766.
+
 Press Ctrl+C to stop. Render Buddy closes its Phaze connections. Renders that were still being
 watched are picked up again the next time you start it, because jobs are stored in
 `data/render_buddy.db`.
@@ -211,6 +224,7 @@ on screen.
 | `phaze_api.py` | Tiny Phaze Enterprise API client (from the helpdesk example) |
 | `phaze_mcp.py` | Tiny Phaze MCP client, with no mouse or keyboard methods on purpose |
 | `web/` | The single-page dashboard, styled with Phaze's design tokens |
+| `demo.py` | The dashboard with fake machines and renders (used for the images in `docs/`) |
 | `tests/` | Offline tests |
 
 ---
