@@ -7,8 +7,7 @@ of the whole run.
 
 This was AI vibe coded with Opus 5.5, like the
 [helpdesk example](https://github.com/boxerbk/phaze-mcp-api-helpdesk-example). It isn't a product.
-It's here to show you (or your AI coding agent) a second real use of the Phaze API and MCP, small
-enough to read in one sitting and copy.
+It's here to show you (or your AI coding agent) a second real use of the Phaze API and MCP.
 
 > [!NOTE]
 > Phaze currently only supports connections between *Windows computers*, and needs graphics
@@ -49,8 +48,6 @@ enough to read in one sitting and copy.
 ![The Render Buddy dashboard: three watched machines (stalled, error, rendering), the machine list and history](docs/dashboard.png)
 
 ![A Render Buddy thread in Slack: watch started, 25% milestone, then an error alert with a screenshot](docs/slack-thread.png)
-
-<sub>Both images were made with `python demo.py` (fake machines and renders). The Slack image is a mockup of what the bot posts.</sub>
 
 When a render finishes, the thread gets a timelapse like this one:
 
@@ -272,7 +269,6 @@ For a longer tour of both surfaces, see the
 - **Auto-discovery.** Every hour, glance at idle machines and start watching any that show a render
   window.
 - **Queue hand-off.** When a render finishes, connect and start the next item in the queue.
-- **Cost per render.** Combine render time with machine specs from the API.
 
 ## Troubleshooting
 
