@@ -12,6 +12,7 @@ import traceback
 
 import profiles
 import timelapse
+from slack_bot import slack_escape
 from phaze_mcp import NOT_CAPTURING, NOT_READY, PhazeMCPError, agent_connection_to, find_connection, primary_output
 from store import ACTIVE, Store
 from vision import BIG_CHANGE, SMALL_CHANGE, screen_change
@@ -175,7 +176,7 @@ class Watcher:
                 state = "rendering"
 
         if first:
-            await self._notify("update", f"First look: {result['summary'] if result else 'screen captured.'}", png)
+            await self._notify("update", f"First look: {slack_escape(result['summary']) if result else 'screen captured.'}", png)
         await self._apply(state, result, png, unchanged_for)
 
     def _vision_state(self, seen: str, suspect_stall: bool) -> str:
@@ -188,6 +189,10 @@ class Watcher:
             return "unknown" if seen == "unknown" else "rendering"
         self.stall_votes = 0
         return seen
+
+    def _said(self, key: str = "summary") -> str:
+        """A field Claude read off the screen, made safe for Slack (anyone can put text on that screen)."""
+        return slack_escape(self.job.get(key) or "")
 
     def _context(self, unchanged_for: float) -> str:
         parts = []
@@ -217,28 +222,28 @@ class Watcher:
         crossed = [m for m in MILESTONES if (self.job.get("progress_pct") or 0) >= m and m not in self.milestones]
         if crossed:
             self.milestones.update(crossed)
-            await self._notify("update", f":checkered_flag: *{max(crossed)}%* — {self.job.get('summary') or ''}", png)
+            await self._notify("update", f":checkered_flag: *{max(crossed)}%* — {self._said()}", png)
 
         if state in ALERT_STATES and state != self.alerted:
             self.alerted = state
             text = ALERT_TEXT[state].format(mins=round(unchanged_for / 60), machine=self.job["machine_name"])
-            detail = self.job.get("error_text") if state == "error_dialog" else None
-            detail = detail or (self.job.get("summary") if result and self.vision and state != "locked" else None)
+            detail = self._said("error_text") if state == "error_dialog" else None
+            detail = detail or (self._said() if result and self.vision and state != "locked" else None)
             await self._notify("alert", text + (f"\n> {detail}" if detail else ""), png, state)
         elif self.alerted and state not in ALERT_STATES and (state == "rendering" or self.alerted == "locked"):
             was, self.alerted = self.alerted, None
             lead = (f":unlock: *Signed in* on {self.job['machine_name']}. Watching the render again."
                     if was == "locked" else ":white_check_mark: Back to rendering.")
-            await self._notify("update", f"{lead} {self.job.get('summary') or ''}".strip(), png)
+            await self._notify("update", f"{lead} {self._said()}".strip(), png)
 
         if self.snapshot_requested:
             self.snapshot_requested = False
-            await self._notify("update", f":camera: Snapshot: {self.job.get('summary') or state}", png, force=True)
+            await self._notify("update", f":camera: Snapshot: {self._said() or state}", png, force=True)
 
     async def _finish(self, png: bytes | None) -> None:
         gif = await asyncio.to_thread(timelapse.build_gif, self.dir)
         took = _duration(self.clock() - self.job["started_at"])
-        text = f":tada: *Render finished* on {self.job['machine_name']} after {took}. {self.job.get('summary') or ''}"
+        text = f":tada: *Render finished* on {self.job['machine_name']} after {took}. {self._said()}"
         self.store.add_event(self.job["id"], "finished", "finished", text)
         await self.notifier.finished(self.job, text, png, gif)
         await self.end("finished")

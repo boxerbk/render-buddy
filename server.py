@@ -7,9 +7,11 @@ It binds to 127.0.0.1 only, and only answers requests addressed to localhost.
 """
 import asyncio
 
-from fastapi import FastAPI, HTTPException
+from urllib.parse import urlsplit
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -34,6 +36,14 @@ def create_app(manager, cfg) -> FastAPI:
     app = FastAPI(title="Render Buddy", docs_url=None, redoc_url=None)
     # Blocks DNS-rebinding: a web page on another site can't reach this server through a hostname it controls.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+
+    @app.middleware("http")
+    async def same_origin_only(request: Request, call_next):
+        """Another website open in your browser can't press buttons here (start/stop/mute, set the key)."""
+        origin = request.headers.get("origin")
+        if request.method not in ("GET", "HEAD") and origin and urlsplit(origin).hostname not in ("127.0.0.1", "localhost"):
+            return JSONResponse({"detail": "Cross-site request refused."}, status_code=403)
+        return await call_next(request)
     state = {"api": None, "orgs": []}
 
     def connect_api(key: str) -> None:

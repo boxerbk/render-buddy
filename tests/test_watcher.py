@@ -382,3 +382,37 @@ def test_single_connection_phaze_protects_your_own_session(tmp_path, monkeypatch
     alert = next(t for k, t, _ in notes.posts if k == "alert")
     assert "your own Phaze session to *M2*" in alert
     assert a.done and not app.conns  # Render Buddy backed off rather than keep fighting your session
+
+
+# ---------- safety ----------
+
+def test_screen_text_cannot_ping_the_channel_or_hide_links(tmp_path):
+    class Sneaky(FakeVision):
+        async def assess(self, png, profile, context=""):
+            r = await super().assess(png, profile, context)
+            r["error_text"] = "<!channel> click <https://evil.example|your render> & fix"
+            return r
+
+    w, mcp, notes, clock, _ = make(tmp_path, Sneaky(("rendering", 5), ("error_dialog", None)))
+    run_checks(w, clock, mcp, [png("a"), png("b", big=True)])
+    alert = notes.posts[-1][1]
+    assert "<!channel>" not in alert and "<https://" not in alert
+    assert "&lt;!channel&gt;" in alert and "&amp; fix" in alert
+    assert w.job["error_text"].startswith("<!channel>")  # stored raw; the dashboard shows it as plain text
+
+
+def test_other_websites_cannot_press_buttons(tmp_path):
+    from fastapi.testclient import TestClient
+
+    import demo
+    from server import create_app
+
+    m = Manager(demo.FakeMCP(), None, Store(tmp_path), Hub(), demo.Cfg(), notifier=Notes())
+    client = TestClient(create_app(m, demo.Cfg()), base_url="http://127.0.0.1")
+    evil = {"Origin": "https://evil.example"}
+    assert client.post("/api/session", json={"api_key": "x"}, headers=evil).status_code == 403
+    assert client.post("/api/jobs/abc/snapshot", headers=evil).status_code == 403
+    assert client.delete("/api/jobs/abc", headers=evil).status_code == 403
+    assert client.post("/api/jobs/abc/snapshot", headers={"Origin": "http://127.0.0.1:8765"}).status_code == 404
+    assert client.get("/api/status", headers=evil).status_code == 200  # reads are fine: CORS stops the page seeing them
+    assert TestClient(create_app(m, demo.Cfg()), base_url="http://evil.example").get("/api/status").status_code == 400

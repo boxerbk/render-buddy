@@ -9,6 +9,11 @@ import profiles
 BUTTON = re.compile(r"^rb_(snapshot|mute|unmute|stop)$")
 
 
+def slack_escape(text: str) -> str:
+    """Neutralise Slack control sequences (<!channel>, <@U123>, <url|label>) in text read off a screen."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def phaze_connect_url(machine_id: str) -> str:
     """Deep link that opens a Phaze session to this machine on the clicker's computer."""
     return f"phaze://connect?id={machine_id}"

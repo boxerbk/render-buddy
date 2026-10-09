@@ -92,8 +92,17 @@ Render Buddy server (Python, same PC as the Phaze app)
   out. Without an API key, the list comes from the MCP alone.
 - **Your API key stays on your PC.** The page sends it to the local server, which keeps it in
   memory and uses it only to call the Phaze API. Alternatively, put it in `.env`.
-- **The server only answers on `127.0.0.1`/`localhost`**, and rejects other `Host` headers to
-  block DNS-rebinding tricks from other websites.
+- **The server only answers on `127.0.0.1`/`localhost`.** It rejects other `Host` headers, which
+  blocks DNS-rebinding tricks. It also refuses button presses (start, stop, mute, setting the key)
+  that come from any other website open in your browser.
+- **Where screenshots go.** Each screenshot is a full image of the render PC's main monitor.
+  Screenshots are stored in `data/` on this PC. They are sent to Anthropic only when Claude takes a
+  look, and posted to your Slack channel only with alerts, updates and snapshots. Don't watch a
+  machine whose screen shouldn't leave it, and keep the Slack channel private if that matters.
+- **Text on the render PC's screen is treated as untrusted.** Whatever Claude reads there (error
+  messages, window titles) is escaped before it goes into Slack, so it can't `@channel` people or
+  hide links. Claude's answer can only set a state and a summary; it can't make Render Buddy do
+  anything.
 
 ## Watching several machines at once
 
