@@ -5,6 +5,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -167,6 +168,36 @@ def test_milestones_and_finish_build_a_timelapse(tmp_path):
     assert (store.job_dir(w.job["id"]) / "timelapse.gif").exists()
     assert store.get_job(w.job["id"])["status"] == "finished"
     assert mcp.disconnected == ["c1"]
+
+
+@pytest.mark.parametrize("unavailable", ["timelapse", "slack"])
+def test_output_failure_does_not_leave_a_finished_render_active(tmp_path, monkeypatch, unavailable):
+    w, mcp, notes, clock, _ = make(tmp_path, FakeVision(("rendering", 10), ("finished", 100)))
+
+    if unavailable == "timelapse":
+        def broken_frame(_job_dir):
+            raise OSError("could not read a saved frame")
+
+        monkeypatch.setattr("watcher.timelapse.build_gif", broken_frame)
+    else:
+        async def failed_upload(*_args):
+            raise RuntimeError("Slack upload unavailable")
+
+        monkeypatch.setattr(notes, "finished", failed_upload)
+
+    try:
+        run_checks(w, clock, mcp, [png("frame 1"), png("done", big=True)])
+    finally:
+        persisted = Store(tmp_path)
+        job = persisted.get_job(w.job["id"])
+        assert job["status"] == "finished"
+        assert job["connection_id"] is None
+        assert persisted.list_jobs(active=True) == []
+        assert [event["kind"] for event in persisted.events(job["id"])].count("finished") == 1
+    assert w.done
+    assert mcp.disconnected == ["c1"]
+    if unavailable == "timelapse":
+        assert notes.posts[-1][0] == "finished" and not notes.posts[-1][2]
 
 
 def test_offline_and_locked_screen(tmp_path):

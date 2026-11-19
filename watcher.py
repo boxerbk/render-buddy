@@ -241,11 +241,19 @@ class Watcher:
             await self._notify("update", f":camera: Snapshot: {self._said() or state}", png, force=True)
 
     async def _finish(self, png: bytes | None) -> None:
-        gif = await asyncio.to_thread(timelapse.build_gif, self.dir)
+        # Optional output failures must not leave an already-finished job active.
+        gif = None
+        try:
+            gif = await asyncio.to_thread(timelapse.build_gif, self.dir)
+        except (OSError, ValueError) as e:
+            print(f"[watch]  could not build timelapse for {self.job['machine_name']}: {e}")
         took = _duration(self.clock() - self.job["started_at"])
         text = f":tada: *Render finished* on {self.job['machine_name']} after {took}. {self._said()}"
         self.store.add_event(self.job["id"], "finished", "finished", text)
-        await self.notifier.finished(self.job, text, png, gif)
+        try:
+            await self.notifier.finished(self.job, text, png, gif)
+        except Exception as e:
+            print(f"[notify] failed to post finished: {e}")
         await self.end("finished")
 
     async def end(self, status: str) -> None:
